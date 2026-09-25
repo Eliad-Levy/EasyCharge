@@ -1,0 +1,487 @@
+--- before/Cars_BST.c
++++ after/Cars_BST.c
+@@ -1,4 +1,4 @@
+-﻿#include "Cars_BST.h"
++#include "Cars_BST.h"
+ 
+ 
+ // Create and return a new car manager
+@@ -200,6 +200,7 @@
+ 
+     // Defaults
+     newCar->totalPayed = 0;
++    newCar->stationId = 0;
+     newCar->pPort = NULL;
+     newCar->inqueue = 0;
+ 
+--- before/Files.c
++++ after/Files.c
+@@ -1,14 +1,14 @@
+-﻿#include "Files.h"
++#include "Files.h"
+ 
+ 
+ // ===== File Loading Functions =====
+ 
+-void loadStations(const char* filename, StationsADT* stationsManager) 
++bool loadStations(const char* filename, StationsADT* stationsManager) 
+ {
+     FILE* fp = fopen(filename, "r");
+     if (!fp) {
+         displayError(10);
+-        return;
++        return false;
+     }
+ 
+     char line[MAX_NAME_LEN];
+@@ -19,11 +19,11 @@
+         if (!token || strcmp(token, "ID") == 0)
+             continue; // skip header line
+ 
+-        Station* station = (Station*)malloc(sizeof(Station));
++        Station* station = (Station*)calloc(1, sizeof(Station));
+         if (!station) {
+             displayError(21);
+             fclose(fp);
+-            return;
++            return false;
+         }
+ 
+         // Init default pointers and counters
+@@ -58,15 +58,26 @@
+         station->coord.y = atof(token);
+ 
+         // Insert fully initialized station to BST
++        if (searchStationIDRec(stationsManager->root, station->id))
++            goto fail;
+         insertStation(stationsManager, station);
++        Station* inserted = searchStationIDRec(stationsManager->root, station->id);
++        if (!inserted) goto fail;
++        // The tree node owns the name; release only the temporary struct.
++        free(station);
+         continue;
+ 
+     fail:
+         if (station->name) free(station->name);
+         free(station);
+-    }
+-
+-    fclose(fp);
++        displayError(ERR_FILE_FORMAT);
++        fclose(fp);
++        return false;
++    }
++
++    bool readOK = !ferror(fp);
++    if (fclose(fp) != 0) readOK = false;
++    return readOK;
+ }
+ 
+ 
+@@ -74,12 +85,12 @@
+ 
+ 
+ // Loads all car data and adds them to the car BST
+-void loadCars(const char* filename, CarsADT* carsManager) 
++bool loadCars(const char* filename, CarsADT* carsManager) 
+ {
+     FILE* fp = fopen(filename, "r");
+     if (!fp) {
+         printf("Error opening file: %s\n", filename);
+-        return;
++        return false;
+     }
+ 
+     char line[MAX_NAME_LEN];
+@@ -94,7 +105,7 @@
+         if (!car) {
+             displayError(22);
+             fclose(fp);
+-            return;
++            return false;
+         }
+ 
+         // Extract license number
+@@ -103,7 +114,7 @@
+ 
+         // Parse port type enum
+         token = strtok(NULL, ",");
+-        if (!token) { free(car); continue; }
++        if (!token) { free(car); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         if (strcmp(token, "SLOW") == 0)
+             car->portType = SLOW;
+         else if (strcmp(token, "MID") == 0)
+@@ -113,39 +124,52 @@
+ 
+         // total amount paid
+         token = strtok(NULL, ",");
+-        if (!token) { free(car); continue; }
++        if (!token) { free(car); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         car->totalPayed = atof(token);
+ 
+         // station ID
+         token = strtok(NULL, ",");
+-        if (!token) { free(car); continue; }
++        if (!token) { free(car); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         car->stationId = atoi(token);
+ 
+         // Skip port number (not used)
+         token = strtok(NULL, ",");
+-        if (!token) { free(car); continue; }
++        if (!token) { free(car); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+ 
+         // queue flag
+         token = strtok(NULL, ",");
+-        if (!token) { free(car); continue; }
++        if (!token) { free(car); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         car->inqueue = atoi(token);
+ 
+         // Initialize pointer
+         car->pPort = NULL;
+ 
++        if (searchCar(carsManager, car->nLicense)) {
++            free(car);
++            fclose(fp);
++            displayError(ERR_FILE_FORMAT);
++            return false;
++        }
+         insertCar(carsManager, car);
+-    }
+-
+-    fclose(fp);
++        if (searchCar(carsManager, car->nLicense) != car) {
++            free(car);
++            fclose(fp);
++            return false;
++        }
++    }
++
++    bool readOK = !ferror(fp);
++    if (fclose(fp) != 0) readOK = false;
++    return readOK;
+ }
+ 
+ // Loads car queues and assigns them to matching stations
+-void loadLineOfCars(const char* filename, StationsADT* stationsManager, CarsADT* carsManager)
++bool loadLineOfCars(const char* filename, StationsADT* stationsManager, CarsADT* carsManager)
+ {
+     FILE* fp = fopen(filename, "r");
+     if (!fp) {
+         displayError(10);
+-        return;
++        return false;
+     }
+ 
+     char line[MAX_NAME_LEN];
+@@ -162,41 +186,50 @@
+         license[MAX_LICENSE_LEN - 1] = '\0';
+ 
+         token = strtok(NULL, ",");
+-        if (!token) continue;
++        if (!token) { fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         int stationId = atoi(token);
+ 
+         // Validate station exists
+         Station* station = searchStationIDRec(stationsManager->root, stationId);
+         if (!station) {
+             displayError(30);
+-            continue;
++            fclose(fp);
++            return false;
+         }
+ 
+         // Find matching car in BST
+         Car* car = searchCar(carsManager, license);
+         if (!car) {
+             displayError(31);
+-            continue;
++            fclose(fp);
++            return false;
+         }
+ 
+         // Add to queue only if not already charging
+         if (car->inqueue && car->pPort == NULL) {
++            carNode* oldRear = station->carQueue.rear;
+             enqueueCar(&station->carQueue, car);
++            if (station->carQueue.rear == oldRear) {
++                fclose(fp);
++                return false;
++            }
+             station->nCars++;
+         }
+     }
+ 
+-    fclose(fp);
++    bool readOK = !ferror(fp);
++    if (fclose(fp) != 0) readOK = false;
++    return readOK;
+ }
+ 
+ 
+ // Loads port data and assigns them to the appropriate stations
+-void loadPorts(const char* filename, StationsADT* stationsManager, CarsADT* carsManager)
++bool loadPorts(const char* filename, StationsADT* stationsManager, CarsADT* carsManager)
+ {
+     FILE* fp = fopen(filename, "r");
+     if (!fp) {
+         displayError(10);
+-        return;
++        return false;
+     }
+ 
+     char line[256];
+@@ -211,23 +244,25 @@
+         Station* station = searchStationIDRec(stationsManager->root, stationId);
+         if (!station) {
+             displayError(30);
+-            continue;
++            fclose(fp);
++            return false;
+         }
+ 
+         Port* port = (Port*)malloc(sizeof(Port));
+         if (!port) {
+             displayError(23);
+-            continue;
++            fclose(fp);
++            return false;
+         }
+ 
+         // port number
+         token = strtok(NULL, ",");
+-        if (!token) { free(port); continue; }
++        if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         port->num = atoi(token);
+ 
+         // port type
+         token = strtok(NULL, ",");
+-        if (!token) { free(port); continue; }
++        if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         if (strcmp(token, "SLOW") == 0)
+             port->portType = SLOW;
+         else if (strcmp(token, "MID") == 0)
+@@ -237,15 +272,15 @@
+ 
+         // port status
+         token = strtok(NULL, ",");
+-        if (!token) { free(port); continue; }
++        if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; }
+         port->status = atoi(token);
+ 
+         // charging start time (Date struct)
+-        token = strtok(NULL, ","); if (!token) { free(port); continue; } port->tin.year = atoi(token);
+-        token = strtok(NULL, ","); if (!token) { free(port); continue; } port->tin.month = atoi(token);
+-        token = strtok(NULL, ","); if (!token) { free(port); continue; } port->tin.day = atoi(token);
+-        token = strtok(NULL, ","); if (!token) { free(port); continue; } port->tin.hour = atoi(token);
+-        token = strtok(NULL, ","); if (!token) { free(port); continue; } port->tin.minute = atoi(token);
++        token = strtok(NULL, ","); if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; } port->tin.year = atoi(token);
++        token = strtok(NULL, ","); if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; } port->tin.month = atoi(token);
++        token = strtok(NULL, ","); if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; } port->tin.day = atoi(token);
++        token = strtok(NULL, ","); if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; } port->tin.hour = atoi(token);
++        token = strtok(NULL, ","); if (!token) { free(port); fclose(fp); displayError(ERR_FILE_FORMAT); return false; } port->tin.minute = atoi(token);
+ 
+         // Try to link port to a car (if any)
+         token = strtok(NULL, ",");
+@@ -259,6 +294,9 @@
+             }
+             else {
+                 displayError(31);
++                free(port);
++                fclose(fp);
++                return false;
+             }
+         }
+ 
+@@ -270,14 +308,17 @@
+             if (!station->portsList) {
+                 displayError(24);
+                 free(port);
+-                continue;
++                fclose(fp);
++                return false;
+             }
+             station->portsList->head = NULL;
+         }
+         addPortToList(station->portsList, port);
+     }
+ 
+-    fclose(fp);
++    bool readOK = !ferror(fp);
++    if (fclose(fp) != 0) readOK = false;
++    return readOK;
+ }
+ 
+ 
+--- before/Files.h
++++ after/Files.h
+@@ -14,16 +14,16 @@
+ // === Load files funcs ===
+ 
+ // grabs stations info and builds the BST
+-void loadStations(const char* filename, StationsADT* stationsManager);
++bool loadStations(const char* filename, StationsADT* stationsManager);
+ 
+ // pulls car info and drops them into tree
+-void loadCars(const char* filename, CarsADT* carsManager);
++bool loadCars(const char* filename, CarsADT* carsManager);
+ 
+ // adds queued cars to matching stations
+-void loadLineOfCars(const char* filename, StationsADT* stationsManager, CarsADT* carsManager);
++bool loadLineOfCars(const char* filename, StationsADT* stationsManager, CarsADT* carsManager);
+ 
+ // loads port data and links ports to cars if connected
+-void loadPorts(const char* filename, StationsADT* stationsManager, CarsADT* carsManager);
++bool loadPorts(const char* filename, StationsADT* stationsManager, CarsADT* carsManager);
+ 
+ 
+ // === Update files funcs ===
+--- before/GenFuncs.c
++++ after/GenFuncs.c
+@@ -12,7 +12,7 @@
+     while (1)
+     {
+         printf("Enter X coordinate (or type 0 to return to the menu): ");
+-        if (fgets(input, sizeof(input), stdin) && sscanf(input, "%lf %c", &temp, &extra) == 1)
++        if (fgets(input, sizeof(input), stdin) && sscanf(input, "%lf %c", &temp, &extra) == 1 && isfinite(temp))
+         {
+             if (temp == 0)
+             {
+@@ -29,7 +29,7 @@
+     while (1)
+     {
+         printf("Enter Y coordinate (or type 0 to return to the menu): ");
+-        if (fgets(input, sizeof(input), stdin) && sscanf(input, "%lf %c", &temp, &extra) == 1)
++        if (fgets(input, sizeof(input), stdin) && sscanf(input, "%lf %c", &temp, &extra) == 1 && isfinite(temp))
+         {
+             if (temp == 0)
+             {
+--- before/LineOfCars.c
++++ after/LineOfCars.c
+@@ -88,7 +88,11 @@
+ 
+     while (curr) {
+         if (curr->pCar)
+-            curr->pCar->inqueue = 0;
++        {
++            curr->pCar->inqueue = false;
++            if (!curr->pCar->pPort)
++                curr->pCar->stationId = 0;
++        }
+ 
+         carNode* next = curr->next;
+         free(curr);
+--- before/Station_BST.c
++++ after/Station_BST.c
+@@ -22,7 +22,12 @@
+     }
+     *node = *newStation; 
+     node->left = node->right = NULL;
+-    node->portsList = NULL;
++    node->portsList = (PortList*)calloc(1, sizeof(PortList));
++    if (!node->portsList) {
++        displayError(ERR_MEMORY_ALLOC_PORTLIST);
++        free(node);
++        return NULL;
++    }
+     node->carQueue.front = node->carQueue.rear = NULL;
+     return node;
+ }
+@@ -151,7 +156,7 @@
+ {
+     if (!root) return NULL;
+ 
+-    Port* curr = root->portsList;
++    Port* curr = root->portsList ? root->portsList->head : NULL;
+     while (curr) {
+         if (curr == pPort)
+             return root;
+@@ -180,6 +185,7 @@
+         if (!root->left && !root->right) {
+             free(root->name);
+             freePortList(root->portsList);
++            free(root->portsList);
+             freeQueue(&(root->carQueue));
+             free(root);
+             return NULL;
+@@ -190,6 +196,7 @@
+             Station* temp = root->left ? root->left : root->right;
+             free(root->name);
+             freePortList(root->portsList);
++            free(root->portsList);
+             freeQueue(&(root->carQueue));
+             free(root);
+             return temp;
+@@ -217,6 +224,7 @@
+ 
+         free(root->name);
+         freePortList(root->portsList);
++        free(root->portsList);
+         freeQueue(&(root->carQueue));
+         free(root);
+ 
+--- before/SystemCoreFuncs.c
++++ after/SystemCoreFuncs.c
+@@ -8,17 +8,19 @@
+ }
+ 
+ // load data from all files and init both trees
+-void loadFiles(StationsADT* stationsManager, CarsADT* carsManager)
++bool loadFiles(StationsADT* stationsManager, CarsADT* carsManager)
+ {
+-    stationsManager->root = NULL;
+-    carsManager->root = NULL;
+-
+-    loadStations(FILE_STATIONS, stationsManager);
+-    loadCars(FILE_CARS, carsManager);
+-    loadPorts(FILE_PORTS, stationsManager, carsManager);
+-    loadLineOfCars(FILE_LINE_OF_CARS, stationsManager, carsManager);
++    if (!loadStations(FILE_STATIONS, stationsManager) ||
++        !loadCars(FILE_CARS, carsManager) ||
++        !loadPorts(FILE_PORTS, stationsManager, carsManager) ||
++        !loadLineOfCars(FILE_LINE_OF_CARS, stationsManager, carsManager))
++    {
++        printf("Startup failed: required data could not be loaded. No files were saved.\n");
++        return false;
++    }
+ 
+     printf("System data loaded successfully.\n\n");
++    return true;
+ }
+ 
+ // write system state back to files
+--- before/SystemCoreFuncs.h
++++ after/SystemCoreFuncs.h
+@@ -32,7 +32,7 @@
+ Station* searchStation(StationsADT* manager, const char* input, SearchType type, double x, double y);
+ 
+ // load all data from files into memory
+-void loadFiles(StationsADT* stationsManager, CarsADT* carsManager);
++bool loadFiles(StationsADT* stationsManager, CarsADT* carsManager);
+ 
+ // print user-friendly error by code
+ void displayError(int code);
+--- before/main.c
++++ after/main.c
+@@ -19,11 +19,21 @@
+     if (!stationsADT || !carsADT)
+     {
+         printf("Fatal error: Could not initialize system.\n");
++        free(stationsADT);
++        free(carsADT);
+         return 1;
+     }
+ 
+     // load all data from files
+-    loadFiles(stationsADT, carsADT);
++    if (!loadFiles(stationsADT, carsADT))
++    {
++        // Free partial state without calling exitSys, which saves files.
++        freeStationTree(stationsADT);
++        freeCarTree(carsADT);
++        free(stationsADT);
++        free(carsADT);
++        return 1;
++    }
+ 
+     printf("=== Welcome to EasyCharge Main Menu ===\n\n");
+ 

@@ -1,0 +1,14 @@
+# Visual Studio local state and generated build output
+.vs/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+*.user
+*.suo
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.idb
+*.tlog
