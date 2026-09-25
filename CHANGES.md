@@ -18,6 +18,6 @@ The four uploaded data files are preserved byte-for-byte. Generated build output
 
 ## Scope and remaining limitations
 
-This is a focused maintenance pass, not a complete redesign of input or persistence handling. CSV numeric fields and cross-file relationships do not yet have exhaustive validation. Saving still writes the files individually rather than as an atomic transaction. End-of-input handling in interactive loops is unchanged. Historic sample charging timestamps can produce large elapsed times and simulated bills. No license has been added; public attribution and permission to redistribute course-supplied data remain to be resolved.
+This is a focused maintenance pass, not a complete redesign of input or persistence handling. CSV numeric fields and cross-file relationships do not yet have exhaustive validation. Saving still writes the files individually rather than as an atomic transaction. End-of-input handling in interactive loops is unchanged. Historic sample charging timestamps can produce large elapsed times and simulated bills. No license has been added.
 
 See TESTING.md for the checks performed. See changes.patch for the exact changes relative to EasyCharge fixed.zip.
