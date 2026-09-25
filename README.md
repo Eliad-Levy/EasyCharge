@@ -7,6 +7,17 @@ Advanced Topics in C course at Ruppin Academic Center.
 EasyCharge manages charging stations, vehicles, charging ports,
 waiting queues, and simulated billing.
 
+## Screenshots
+
+### Main Menu
+![EasyCharge main menu](screenshots/main-menu.png)
+
+### Nearest Station Search
+Searching with coordinates (32.79, 34.99) returns Haifa Port, with its charging port availability and queue status.
+
+![Nearest station search showing Haifa Port](screenshots/nearest-station.png)
+
+
 ## Features
 
 - Search for stations by ID, name, or proximity to input coordinates.
